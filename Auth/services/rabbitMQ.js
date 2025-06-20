@@ -17,44 +17,32 @@ export const rabbitMQ = async () => {
 
 (async () => {
   const channel = await rabbitMQ();
-
   const queueUser = "user_find_queue";
-
   await channel.assertQueue(queueUser, { durable: false });
 
   await channel.consume(queueUser, async (msg) => {
     if (!msg) return;
-    console.log(`Attempting to consume from queue: ${queueUser}`);
-    console.log('function call')
+
     try {
       const { userId } = JSON.parse(msg.content.toString());
-
       const userDetails = await UserModel.findById(userId).select("-password").lean();
-      console.log("User details found:", userDetails);
-      console.log(msg.properties, 'msg.properties');
-      // ✅ Send to the reply queue using the correlationId
-      const sendToqueue = channel.sendToQueue(
+
+      channel.sendToQueue(
         msg.properties.replyTo,
         Buffer.from(JSON.stringify(userDetails || {})),
-        {
-          correlationId: msg.properties.correlationId,
-        }
+        { correlationId: msg.properties.correlationId }
       );
-      if (!sendToqueue) {
-        console.error(`Failed to send message to reply queue: ${msg.properties.replyTo}`);
-      } else {
-        console.log(`Message successfully sent to reply queue: ${msg.properties.replyTo}`);
-        channel.ack(msg);
-      }
 
+      channel.ack(msg);
     } catch (error) {
-      console.error("Error processing user_find_queue message:", error);
-      channel.nack(msg, false, false); // Reject message
+      console.error("Error processing message:", error);
+      channel.nack(msg, false, false);
     }
   });
 
   console.log("Auth microservice is listening for user_find_queue...");
 })();
+
 
 
 

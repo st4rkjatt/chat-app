@@ -4,44 +4,8 @@ const MessageModel = require('../model/messageModel');
 const UserModel = require("../model/userModels");
 const rabbitMQ = require("../services/rabbitMq");
 const { v4: uuidv4 } = require("uuid");
+const requestUserDetails = require("../utils/rabbitRequest");
 
-// const sendMessage = async (req, res, next) => {
-//     try {
-//         const { message } = req.body;
-
-//         const senderId = req.userId;
-//         const receiverId = req.params.id;
-
-//         // console.log(senderId, message, receiverId, '?')
-//         let conversation = await ConversationModel.findOne({
-//             participants: { $all: [senderId, receiverId] }
-//         });
-
-//         if (!conversation) {
-//             conversation = await ConversationModel.create({
-//                 participants: [senderId, receiverId],
-//             });
-//         }
-
-//         const newMessage = new MessageModel({
-//             senderId,
-//             receiverId,
-//             message
-//         });
-
-//         conversation.messages.push(newMessage._id);
-
-//         console.log(conversation,"conversation")
-//         await Promise.all([conversation.save(), newMessage.save()]);
-//         res.status(200).json({
-//             status: true,
-//             message: message
-//         });
-//     } catch (error) {
-//         console.log(error);
-//         next(error);
-//     }
-// }
 const sendMessage = async (req, res, next) => {
     try {
         console.log('send message API')
@@ -67,76 +31,13 @@ const sendMessage = async (req, res, next) => {
         // console.log(isExits, "exits")
 
 
-        // check first both user exits in user table or not 
-        // const sender = await UserModel.findById(senderId);
-        // const receiver = await UserModel.findById(receiverId);
 
-        // Send request to user service
-        // ✅ Create a temporary exclusive queue for the reply
-        const channel = await rabbitMQ();
-        const { queue } = await channel.assertQueue("", { exclusive: true });
-        const correlationId1 = uuidv4();
+        const sender = await requestUserDetails(senderId);
+        console.log("Sender:", sender);
 
-        channel.sendToQueue(
-            "user_find_queue",
-            Buffer.from(JSON.stringify({ userId: senderId })), // ✅ send object
-            {
-                replyTo: queue,
-                correlationId: correlationId1,
-            }
-        );
+        const receiver = await requestUserDetails(receiverId);
+        console.log("Receiver:", receiver);
 
-        const sender = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error("User detail response timeout"));
-            }, 5000);
-
-            channel.consume(
-                queue,
-                (msg) => {
-                    console.log("Listening for:", correlationId1);
-                    if (msg.properties.correlationId === correlationId1) {
-                        clearTimeout(timeout); // ✅ FIXED
-                        channel.ack(msg);
-                        resolve(JSON.parse(msg.content.toString()));
-                    }
-                },
-                { noAck: false }
-            );
-        });
-
-        console.log(sender, "sender detail");
-
-
-        // Send request to user service
-        const correlationId2 = uuidv4();
-        const { queue: queue2 } = await channel.assertQueue("", { exclusive: true });
-        channel.sendToQueue("user_find_queue",
-            Buffer.from(JSON.stringify({ userId: receiverId })), // ✅ send object
-            {
-                replyTo: queue2,
-                correlationId: correlationId2,
-            }
-        );
-
-        const receiver = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error("User detail response timeout"));
-            }, 5000);
-            channel.consume(queue2,
-                (msg) => {
-                    console.log("Listening for:", correlationId2);
-                    if (msg.properties.correlationId === correlationId2) {
-                        clearTimeout(timeout); // ✅ FIXED
-                        channel.ack(msg);
-                        resolve(JSON.parse(msg.content.toString()));
-                    }
-                },
-                { noAck: false }
-            );
-        });
-
-        console.log(receiver, "receiver detail");
         if (!sender || !receiver) {
             return res.status(400).json({
                 status: false,
